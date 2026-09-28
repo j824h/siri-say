@@ -1,0 +1,16 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh scripts/build.sh
+      - run: sh scripts/check-language.sh
+      - run: python3 scripts/check-cli.py .build/standalone/release/siri-say
+      - name: Check installation
+        run: |
+          PREFIX="$RUNNER_TEMP/siri-say-install" sh scripts/install.sh
+          "$RUNNER_TEMP/siri-say-install/bin/siri-say" --version

@@ -1,0 +1,143 @@
+# siri-say
+
+Speak text using the Siri voices installed on your Mac. Automatically switches
+voices between sentences in different languages, or lets you choose a voice.
+Play the result aloud or save it as a WAV file.
+
+```sh
+siri-say "Hello! 안녕하세요!"
+echo "Read this aloud." | siri-say
+siri-say -v en-US -o hello.wav "Hello!"
+```
+
+## Requirements
+
+- macOS 26 or later. This is an experimental tool using private Apple frameworks;
+  OS updates can change compatibility. The deployment target is 26, but each OS
+  version needs a real synthesis check before claiming support.
+- Downloaded Siri voice assets. Choose a Siri language and voice in System
+  Settings and allow its download to complete. Run `siri-say -v '?'` to see what
+  the tool finds locally.
+- To build: Xcode Command Line Tools with Swift 5.9 or later and a macOS 26+
+  SDK. Install Apple's tools with `xcode-select --install` if needed.
+
+Apple Silicon is the initial verification target. Intel synthesis is unverified.
+The package has no third-party Swift dependencies and does not bundle Apple voices.
+Locally verified on Apple Silicon with macOS 27.0 and Swift 6.4: release build,
+CLI checks, installation, voice listing, and English/Korean WAV synthesis.
+macOS 26 synthesis remains to be verified.
+
+## Install from source
+
+Clone [j824h/siri-say](https://github.com/j824h/siri-say), then run:
+
+```sh
+git clone https://github.com/j824h/siri-say.git
+cd siri-say
+sh scripts/install.sh
+```
+
+This builds an optimized executable and installs it at `~/.local/bin/siri-say`.
+If that directory is not on your PATH, add this to `~/.zshrc` and open a new shell:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Choose another installation prefix with `PREFIX=/your/prefix sh scripts/install.sh`.
+Update by fetching a new release and running the installer again. Uninstall with
+`rm ~/.local/bin/siri-say` (adjust the path for a custom prefix).
+
+You can also run directly from the checkout:
+
+```sh
+sh scripts/build.sh
+.build/standalone/release/siri-say --help
+```
+
+## Usage
+
+```text
+siri-say [options] [text ...]
+```
+
+| Option | Meaning |
+| --- | --- |
+| `-v LANGUAGE[:VOICE]` | Choose a language and optional voice |
+| `-v '?'`, `--list` | List installed voice IDs, System Settings labels, and kinds |
+| `-o FILE` | Write WAV instead of playing audio |
+| `--rate NUMBER` | Positive engine rate multiplier; default `1.0` |
+| `--kind KIND` | Select an implementation such as `natural`, `neural`, or `neuralAX` |
+| `--debug` | Show routing, asset, and synthesis diagnostics on stderr |
+| `-h`, `--help` | Show help |
+| `--version` | Show version |
+| `--` | Treat the remaining arguments as text, including leading dashes |
+
+Copy a voice ID from the list, or use a language alone (`-v en-US`). Quote voice
+names containing spaces. Quote `'?'` so your shell does not expand it.
+With no text arguments, the tool reads UTF-8 stdin. At a terminal it speaks each
+line after Enter and continues until Ctrl-D. Blank lines are ignored. Piped or
+redirected text is read through EOF and synthesized together. With terminal input,
+`-o` replaces the output file for each line, matching native `say`. Output files are always 48 kHz, mono, signed 16-bit PCM WAV, regardless
+of the filename extension. Existing output files are overwritten.
+
+Automatic selection considers sentence language, your configured Siri voice,
+Apple's locale default, and installed implementations. It tries another matching
+voice when synthesis reports a failure. Language detection considers ranked
+candidates and selects the highest-ranked language with an installed voice.
+If none of the candidates is installed, it falls back to your configured Siri
+language when available. Explicit language selections are not replaced by this
+fallback. Chinese routing uses Cantonese and
+Standard Written Chinese features and nearby sentence context; ambiguous text
+uses system preferences, then Mandarin. Use `-v zh-HK` or `-v zh-CN` to select
+Cantonese or Mandarin explicitly.
+
+## Troubleshooting
+
+- **No installed voice matching a language:** check the voice list and download
+  the corresponding Siri voice in System Settings.
+- **A voice fails:** use `--debug` to inspect which asset failed; try another ID
+  from the list or another `--kind`. Private framework behavior varies by OS.
+- **Language detection is wrong:** specify `-v LANGUAGE`. Very short text may
+  not provide enough evidence for automatic detection.
+- **Sharing diagnostics:** `--debug` includes input text and local asset paths.
+
+## Development and releases
+
+```sh
+sh scripts/build.sh
+sh scripts/check-language.sh
+python3 scripts/check-cli.py .build/standalone/release/siri-say
+```
+
+The build script uses `swiftc` directly because the project has no package
+dependencies. This avoids nonexistent `Developer/usr/lib` and
+`Developer/Library/Frameworks` search paths injected by Swift Build with the
+Command Line Tools toolchain, without suppressing linker warnings. `Package.swift`
+remains available for SwiftPM and editor integration; raw `swift build` may still
+emit those toolchain warnings.
+
+CI runs build, CLI, and installation checks without requiring downloaded voices.
+Real synthesis must also be checked on a Mac with voice assets:
+
+```sh
+.build/standalone/release/siri-say -v '?'
+.build/standalone/release/siri-say -v en-US -o /tmp/siri-say-check.wav "Release check."
+afplay /tmp/siri-say-check.wav
+python3 scripts/check-interactive.py .build/standalone/release/siri-say
+```
+
+Source lives in `Sources/SiriSay`: `main.swift` handles the CLI, `Help.swift`
+contains help and version information, and `Runtime.swift` contains voice
+discovery, language routing, synthesis, and WAV encoding. The process deliberately
+skips private engine teardown because it can crash or hang.
+
+Create a release archive and checksum with `sh scripts/package.sh`.
+
+## License and credits
+
+Licensed under the [MIT License](LICENSE).
+The adapted Cantonese classifier comes from
+[CanCLID/cantonesedetect](https://github.com/CanCLID/cantonesedetect), under MIT;
+its notice is included in [LICENSES](LICENSES/cantonesedetect-MIT.txt).
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution.
