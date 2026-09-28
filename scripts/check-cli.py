@@ -20,12 +20,23 @@ def check(args, status, expected, data=b""):
 check(["--help"], 0, "Usage: siri-say")
 check(["--version"], 0, "siri-say 0.1.0")
 check(["--unknown"], 1, "unknown option")
-for voice in ("", ":", ":name", "en-US:"):
+for voice in ("", ":", "en-US:Voice:2"):
     check(["-v", voice], 1, "-v requires")
 for rate in ("nan", "inf", "-inf", "0", "-1", "fast"):
     check(["--rate", rate], 1, "finite, positive")
-for option in ("-v", "--kind", "--rate", "-o"):
+for option in ("-v", "--voice", "-l", "--language", "--kind", "--rate", "-o"):
     check([option], 1, "requires")
+for args in (
+    ["-l", "en-US"], ["--language", "en-US"], ["-v", "en-US:"],
+    ["-v", "Voice 2"], ["--voice", "en-US:Voice 2"], ["-v", ":Voice 2"],
+    ["-l", "en-US", "-v", "Voice 2"], ["-v", "Voice 2", "-l", "en-US"],
+    ["-l", "en-US", "-v", "en-US:"],
+):
+    check(args, 1, "no text")
+for args in (["-l", "en-US", "-v", "ko-KR:"], ["-v", "ko-KR:", "-l", "en-US"]):
+    check(args, 1, "conflicting languages")
+for language in ("", " ", "en-US:"):
+    check(["-l", language], 1, "requires a language tag")
 check([], 1, "no text")
 check([], 1, "no text", b" \n\t")
 check([], 1, "UTF-8", b"\xff")

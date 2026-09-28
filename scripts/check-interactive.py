@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="siri-say-interactive-") as directory:
     output = Path(directory) / "speech.wav"
     master, slave = pty.openpty()
     process = subprocess.Popen(
-        [binary, "-v", "en-US", "-o", str(output)],
+        [binary, "-l", "en-US", "-o", str(output)],
         stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     os.close(slave)
@@ -56,12 +56,12 @@ with tempfile.TemporaryDirectory(prefix="siri-say-interactive-") as directory:
     # Compare with one-shot synthesis: terminal -o must contain the last line,
     # not accumulated audio from the session.
     single = Path(directory) / "single.wav"
-    subprocess.run([binary, "-v", "en-US", "-o", str(single), lines[-1].decode().strip()], check=True, timeout=30)
+    subprocess.run([binary, "-l", "en-US", "-o", str(single), lines[-1].decode().strip()], check=True, timeout=30)
     assert frames(single) == frames(output), "Terminal output accumulated lines"
 
     # A pipe must wait for EOF, then synthesize the whole input.
     piped = Path(directory) / "pipe.wav"
-    process = subprocess.Popen([binary, "-v", "en-US", "-o", str(piped)], stdin=subprocess.PIPE)
+    process = subprocess.Popen([binary, "-l", "en-US", "-o", str(piped)], stdin=subprocess.PIPE)
     try:
         process.stdin.write(lines[0])
         process.stdin.flush()

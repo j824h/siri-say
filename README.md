@@ -7,7 +7,7 @@ Play the result aloud or save it as a WAV file.
 ```sh
 siri-say "Hello! 안녕하세요!"
 echo "Read this aloud." | siri-say
-siri-say -v en-US -o hello.wav "Hello!"
+siri-say -l en-US -o hello.wav "Hello!"
 ```
 
 ## Requirements
@@ -63,7 +63,10 @@ siri-say [options] [text ...]
 
 | Option | Meaning |
 | --- | --- |
-| `-v LANGUAGE[:VOICE]` | Choose a language and optional voice |
+| `-l TAG`, `--language TAG` | Choose a language instead of detecting it |
+| `-v VOICE`, `--voice VOICE` | Choose a voice in the selected or detected language |
+| `-v LANGUAGE:VOICE` | Choose both language and voice |
+| `-v LANGUAGE:` | Choose a language and its preferred voice, like `-l LANGUAGE` |
 | `-v '?'`, `--list` | List installed voice IDs, System Settings labels, and kinds |
 | `-o FILE` | Write WAV instead of playing audio |
 | `--rate NUMBER` | Positive engine rate multiplier; default `1.0` |
@@ -73,8 +76,15 @@ siri-say [options] [text ...]
 | `--version` | Show version |
 | `--` | Treat the remaining arguments as text, including leading dashes |
 
-Copy a voice ID from the list, or use a language alone (`-v en-US`). Quote voice
-names containing spaces. Quote `'?'` so your shell does not expand it.
+Use a System Settings label (`-v 'Voice 2'`), or a qualified label
+(`-v 'en-US:Voice 2'`). IDs from the list (`-v en-US:simone`) also work.
+Select only a language with `-l en-US` or `-v 'en-US:'`. A bare value after `-v`
+is always a voice name, so the old `-v en-US` spelling is now `-l en-US`.
+Without a language selection, `-v 'Voice 2'` selects Voice 2 for each detected
+sentence language; a missing matching voice reports an error.
+`-l en-US -v 'Voice 2'` is equivalent to `-v 'en-US:Voice 2'`.
+Conflicting languages in `-l` and qualified `-v` report an error in either order.
+Quote voice names containing spaces. Quote `'?'` so your shell does not expand it.
 With no text arguments, the tool reads UTF-8 stdin. At a terminal it speaks each
 line after Enter and continues until Ctrl-D. Blank lines are ignored. Piped or
 redirected text is read through EOF and synthesized together. With terminal input,
@@ -89,7 +99,7 @@ If none of the candidates is installed, it falls back to your configured Siri
 language when available. Explicit language selections are not replaced by this
 fallback. Chinese routing uses Cantonese and
 Standard Written Chinese features and nearby sentence context; ambiguous text
-uses system preferences, then Mandarin. Use `-v zh-HK` or `-v zh-CN` to select
+uses system preferences, then Mandarin. Use `-l zh-HK` or `-l zh-CN` to select
 Cantonese or Mandarin explicitly.
 
 ## Troubleshooting
@@ -98,7 +108,7 @@ Cantonese or Mandarin explicitly.
   the corresponding Siri voice in System Settings.
 - **A voice fails:** use `--debug` to inspect which asset failed; try another ID
   from the list or another `--kind`. Private framework behavior varies by OS.
-- **Language detection is wrong:** specify `-v LANGUAGE`. Very short text may
+- **Language detection is wrong:** specify `-l LANGUAGE`. Very short text may
   not provide enough evidence for automatic detection.
 - **Sharing diagnostics:** `--debug` includes input text and local asset paths.
 
@@ -122,7 +132,7 @@ Real synthesis must also be checked on a Mac with voice assets:
 
 ```sh
 .build/standalone/release/siri-say -v '?'
-.build/standalone/release/siri-say -v en-US -o /tmp/siri-say-check.wav "Release check."
+.build/standalone/release/siri-say -l en-US -o /tmp/siri-say-check.wav "Release check."
 afplay /tmp/siri-say-check.wav
 python3 scripts/check-interactive.py .build/standalone/release/siri-say
 ```

@@ -2,7 +2,8 @@ import Foundation
 import Darwin
 
 
-var fixedVoiceLanguage: String?
+var requestedLanguage: String?
+var voiceLanguage: String?
 var fixedVoiceName: String?
 var fixedVoiceKind: String?
 var outputPath: String?
@@ -24,22 +25,37 @@ while i < CommandLine.arguments.count {
         print("siri-say \(version)")
         exit(0)
 
-    case "-v":
+    case "-l", "--language":
         i += 1
         guard i < CommandLine.arguments.count else {
-            die("-v requires a voice or '?'")
+            die("\(arg) requires a language tag")
+        }
+        let value = CommandLine.arguments[i]
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !value.contains(":"), !value.hasPrefix("-") else {
+            die("\(arg) requires a language tag")
+        }
+        requestedLanguage = value
+
+    case "-v", "--voice":
+        i += 1
+        guard i < CommandLine.arguments.count else {
+            die("\(arg) requires a voice, LANGUAGE:VOICE, LANGUAGE:, or '?'")
         }
 
         let value = CommandLine.arguments[i]
         if value == "?" {
             listVoices = true
         } else {
-            let parts = value.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            guard !parts[0].isEmpty, parts.count == 1 || !parts[1].isEmpty else {
-                die("-v requires LANGUAGE[:VOICE] or '?'")
+            let parts = value.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count <= 2,
+                  parts.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+                  !value.hasPrefix("-") else {
+                die("\(arg) requires a voice, LANGUAGE:VOICE, LANGUAGE:, or '?'")
             }
-            fixedVoiceLanguage = parts[0]
-            fixedVoiceName = parts.count == 2 ? parts[1] : nil
+            voiceLanguage = parts.count == 2 && !parts[0].isEmpty ? parts[0] : nil
+            let name = parts.last!
+            fixedVoiceName = name.isEmpty ? nil : name
         }
 
     case "--list":
@@ -86,6 +102,12 @@ while i < CommandLine.arguments.count {
 
     i += 1
 }
+
+if let requestedLanguage, let voiceLanguage,
+   requestedLanguage.caseInsensitiveCompare(voiceLanguage) != .orderedSame {
+    die("conflicting languages: -l \(requestedLanguage) and -v \(voiceLanguage):")
+}
+let fixedVoiceLanguage = voiceLanguage ?? requestedLanguage
 
 if listVoices {
     loadFrameworks()
@@ -159,7 +181,7 @@ func speak(_ inputText: String) -> Int32 {
     } else {
         segments = detectedSegments(inputText, debugEnabled: debugEnabled)
         guard !segments.isEmpty else {
-            die("could not detect input language; specify one with -v")
+            die("could not detect input language; specify one with -l")
         }
     }
 
