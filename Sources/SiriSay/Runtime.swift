@@ -853,7 +853,6 @@ enum SiriSayError: Error, CustomStringConvertible {
     case engineInitialization(String, NSError)
     case preheat(String, NSError)
     case synthesis(String, NSError)
-    case noAudio(String)
 
     var description: String {
         switch self {
@@ -863,8 +862,6 @@ enum SiriSayError: Error, CustomStringConvertible {
             return "\(voice): preheat failed: \(error.localizedDescription)"
         case let .synthesis(voice, error):
             return "\(voice): synthesis failed: \(error.localizedDescription)"
-        case let .noAudio(voice):
-            return "\(voice): synthesis returned no audio"
         }
     }
 }
@@ -1041,10 +1038,13 @@ func synthesize(
     if let error = error as? NSError {
         throw SiriSayError.synthesis(voice.specifier, error)
     }
-    guard ok, !pcm.isEmpty else {
-        throw SiriSayError.noAudio(voice.specifier)
-    }
 
+    guard ok else {
+        throw SiriSayError.synthesis(voice.specifier, NSError(
+            domain: "siri-say", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "engine reported failure"]
+        ))
+    }
     return pcm
 }
 

@@ -53,25 +53,37 @@ with tempfile.TemporaryDirectory(prefix="siri-say-interactive-") as directory:
             process.wait()
         os.close(master)
 
-    # Compare with one-shot synthesis: terminal -o must contain the last line,
-    # not accumulated audio from the session.
+    # Terminal -o accumulates audio from every line.
     single = Path(directory) / "single.wav"
     subprocess.run([binary, "-l", "en-US", "-o", str(single), lines[-1].decode().strip()], check=True, timeout=30)
-    assert frames(single) == frames(output), "Terminal output accumulated lines"
+    assert frames(output) > frames(single), "Terminal output lost earlier lines"
 
-    # A pipe must wait for EOF, then synthesize the whole input.
-    piped = Path(directory) / "pipe.wav"
-    process = subprocess.Popen([binary, "-l", "en-US", "-o", str(piped)], stdin=subprocess.PIPE)
-    try:
-        process.stdin.write(lines[0])
-        process.stdin.flush()
-        time.sleep(0.3)
-        assert not piped.exists() and process.poll() is None
-        process.communicate(lines[1], timeout=30)
-        assert process.returncode == 0 and frames(piped) > frames(single)
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait()
+    for mode in ("paragraph", "line"):
+        piped = Path(directory) / f"{mode}.wav"
+        process = subprocess.Popen(
+            [binary, "--stream", mode, "-l", "en-US", "-o", str(piped)],
+            stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            process.stdin.write(b" \n\n" + lines[0])
+            process.stdin.flush()
+            if mode == "paragraph":
+                time.sleep(0.3)
+                assert not piped.exists() and process.poll() is None
+                process.stdin.write(b"\n")
+                process.stdin.flush()
+            deadline = time.monotonic() + 30
+            while frames(piped) == 0:
+                assert process.poll() is None, process.stderr.read().decode()
+                assert time.monotonic() < deadline, f"{mode} waited for EOF"
+                time.sleep(0.05)
+            # EOF must flush a final chunk without a terminating newline.
+            _, stderr = process.communicate(lines[1].rstrip(b"\n"), timeout=30)
+            assert process.returncode == 0, stderr.decode()
+            assert frames(piped) > frames(single)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
-print("Interactive lines, last-line output, EOF, and piped input passed")
+print("Interactive lines, accumulated output, EOF, and line/paragraph streaming passed")

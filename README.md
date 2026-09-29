@@ -69,6 +69,7 @@ siri-say [options] [text ...]
 | `-v LANGUAGE:` | Choose a language and its preferred voice, like `-l LANGUAGE` |
 | `-v '?'`, `--list` | List installed voice IDs, System Settings labels, and kinds |
 | `-o FILE` | Write WAV instead of playing audio |
+| `--stream paragraph`, `--stream line` | Speak at blank lines or each newline; terminal input always uses line mode |
 | `--rate NUMBER` | Positive engine rate multiplier; default `1.0` |
 | `--kind KIND` | Select an implementation such as `natural`, `neural`, or `neuralAX` |
 | `--debug` | Show routing, asset, and synthesis diagnostics on stderr |
@@ -86,10 +87,55 @@ sentence language; a missing matching voice reports an error.
 Conflicting languages in `-l` and qualified `-v` report an error in either order.
 Quote voice names containing spaces. Quote `'?'` so your shell does not expand it.
 With no text arguments, the tool reads UTF-8 stdin. At a terminal it speaks each
-line after Enter and continues until Ctrl-D. Blank lines are ignored. Piped or
-redirected text is read through EOF and synthesized together. With terminal input,
-`-o` replaces the output file for each line, matching native `say`. Output files are always 48 kHz, mono, signed 16-bit PCM WAV, regardless
-of the filename extension. Existing output files are overwritten.
+line after Enter and continues until Ctrl-D. Piped input defaults to paragraph
+mode. Here, **paragraph means a block of nonblank lines separated by one or more
+blank or whitespace-only lines**. EOF submits the final block, even without a
+trailing newline. Input lines use LF or CRLF endings.
+
+This is a plain-text grouping convention. It does not use Apple's
+[`NLTokenizer(unit: .paragraph)`](https://developer.apple.com/documentation/naturallanguage/nltokenunit/paragraph),
+whose documented example treats a single newline as a paragraph boundary.
+A Unicode paragraph separator (U+2029) within a line is not a streaming boundary.
+
+Use `--stream line` to speak each completed line as it arrives:
+
+```sh
+tail -f messages.txt | siri-say --stream line -l en-US
+cat document.txt | siri-say --stream paragraph
+```
+
+Paragraph mode joins internal newlines with spaces before synthesis, including
+when a voice is explicitly selected. Blank chunks and successful synthesis with
+no audio are skipped. Empty input exits successfully without creating or
+truncating an output file. Language routing uses the context within each chunk.
+
+Synthesis runs ahead while a separate playback worker continuously plays queued
+audio. The playback queue holds up to five seconds, plus a small pipe buffer;
+when full, it makes synthesis wait. Each synthesis segment is still generated in
+memory before being sent to the queue. Slow synthesis can exhaust the queue and
+cause a gap, but playback no longer waits between every generation request.
+Both workers are modes of the same executable; no additional installation is
+needed.
+
+During playback, **Ctrl-C stops input and generation**, then finishes audio
+already sent to the playback queue. The terminal offers two choices:
+
+- **Ctrl-C again:** stop playback and exit immediately.
+- **Ctrl-D:** return to the shell while the playback worker finishes its queue.
+  The printed PID can be stopped with `kill PID`.
+
+There is no double-press timeout. These choices also work with piped text when
+there is a foreground controlling terminal. Without one, SIGINT stops everything.
+SIGTERM and SIGHUP stop both workers. Workers also exit if the supervisor dies
+unexpectedly; only explicit detachment permits playback to survive it. A normal
+input EOF finishes all submitted text and waits for playback. Interrupted runs
+exit with status 130, including when playback is detached. With `-o`, Ctrl-C
+interrupts file generation directly; there is no playback to detach.
+
+`-o` accumulates all chunks into one WAV, updating its header as audio is added.
+Output files are always 48 kHz, mono, signed 16-bit PCM WAV, regardless of the
+filename extension. Existing output files are overwritten when the first audio
+is produced.
 
 Automatic selection considers sentence language, your configured Siri voice,
 Apple's locale default, and installed implementations. It tries another matching
@@ -135,10 +181,12 @@ Real synthesis must also be checked on a Mac with voice assets:
 .build/standalone/release/siri-say -l en-US -o /tmp/siri-say-check.wav "Release check."
 afplay /tmp/siri-say-check.wav
 python3 scripts/check-interactive.py .build/standalone/release/siri-say
+python3 scripts/check-playback.py .build/standalone/release/siri-say
 ```
 
 Source lives in `Sources/SiriSay`: `main.swift` handles the CLI, `Help.swift`
-contains help and version information, and `Runtime.swift` contains voice
+contains help and version information, `Playback.swift` manages the audio queue
+and worker lifecycle, and `Runtime.swift` contains voice
 discovery, language routing, synthesis, and WAV encoding. The process deliberately
 skips private engine teardown because it can crash or hang.
 
