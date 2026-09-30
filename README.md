@@ -124,6 +124,9 @@ already sent to the playback queue. The terminal offers two choices:
 - **Ctrl-D:** return to the shell while the playback worker finishes its queue.
   The printed PID can be stopped with `kill PID`.
 
+The control hint uses `^C` and `^D` and appears only while audio remains to finish;
+an empty queue exits without a message.
+
 There is no double-press timeout. These choices also work with piped text when
 there is a foreground controlling terminal. Without one, SIGINT stops everything.
 SIGTERM and SIGHUP stop both workers. Workers also exit if the supervisor dies

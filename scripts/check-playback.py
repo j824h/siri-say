@@ -13,6 +13,7 @@ import time
 
 binary = str(Path(sys.argv[1]).resolve())
 long_text = 'The morning train is arriving at the station and the passengers are gathering their bags. ' * 5
+control_hint = b'^C: stop audio and exit'
 
 
 def processes():
@@ -136,7 +137,9 @@ for piped, action in [(False, 'stop'), (True, 'detach'), (True, 'drain')]:
         os.write(s.writer if piped else s.terminal, (long_text + '\n').encode())
         s.playing()
         s.key(b'\x03')
-        s.until(lambda: b'Generation stopped' in s.log)
+        s.until(lambda: control_hint in s.log)
+        assert b'Generation stopped' not in s.log, s.log
+        assert s.log.count(control_hint) == 1, s.log
         if action == 'stop':
             s.key(b'\x03')
             s.wait(130, 3)
@@ -153,6 +156,41 @@ for piped, action in [(False, 'stop'), (True, 'detach'), (True, 'drain')]:
         print(f'Ctrl-C then {action}: passed (piped={piped})', flush=True)
     finally:
         s.cleanup()
+
+# A live playback worker waiting on empty input has no audio to finish.
+for piped in (False, True):
+    s = Session(piped=piped)
+    try:
+        s.until(lambda: sum(int(row[1]) == s.pid for row in processes()) == 2)
+        s.children.update(int(row[0]) for row in processes() if int(row[1]) == s.pid)
+        s.key(b'\x03')
+        s.wait(130, 3)
+        s.no_workers()
+        assert control_hint not in s.log, s.log
+        assert b'Generation stopped' not in s.log, s.log
+        print(f'Ctrl-C with no queued audio: silent exit (piped={piped})', flush=True)
+    finally:
+        s.cleanup()
+
+# Playback can finish a submitted line while input is still open.
+s = Session()
+try:
+    s.key(b'Hello.\n')
+    s.playing()
+    s.until(lambda: re.search(rb'queued (\d+) PCM bytes', s.log) is not None)
+    audio_seconds = int(re.search(rb'queued (\d+) PCM bytes', s.log)[1]) / 96000
+    deadline = time.monotonic() + audio_seconds + 1
+    while time.monotonic() < deadline:
+        s.pump()
+    assert s.status is None, s.log
+    s.key(b'\x03')
+    s.wait(130, 3)
+    s.no_workers()
+    assert control_hint not in s.log, s.log
+    assert b'Generation stopped' not in s.log, s.log
+    print('Ctrl-C after queued audio finishes: silent exit', flush=True)
+finally:
+    s.cleanup()
 
 for sig in (signal.SIGTERM, signal.SIGKILL):
     s = Session(long_text)

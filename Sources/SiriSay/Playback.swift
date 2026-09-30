@@ -106,7 +106,13 @@ func runPlaybackWorker() -> Never {
                 try FileHandle.standardOutput.write(contentsOf: Data("playing\n".utf8))
             }
         }
-        completed.wait()
+        // Only offer cancellation choices when EOF leaves audio to finish.
+        // An idle worker can still be alive while waiting for more input.
+        if completed.wait(timeout: .now()) == .timedOut {
+            try FileHandle.standardOutput.write(contentsOf: Data("draining\n".utf8))
+            completed.wait()
+            try FileHandle.standardOutput.write(contentsOf: Data("drained\n".utf8))
+        }
         player?.stop()
         engine?.stop()
         Darwin._exit(0)
@@ -128,6 +134,8 @@ final class SpeechPipeline {
     var terminal: Int32 = -1
     var cancelled = false
     var detaching = false
+    var draining = false
+    var prompted = false
     var generatorStatus: Int32?
     var playerStatus: Int32?
     var eventBuffer = Data()
@@ -150,10 +158,6 @@ final class SpeechPipeline {
         if generator.isRunning { kill(generator.processIdentifier, SIGKILL) }
         terminal = open("/dev/tty", O_RDWR | O_NONBLOCK)
         guard terminal >= 0, tcgetpgrp(terminal) == getpgrp() else { finish(130) }
-        // Leave terminal settings unchanged. Canonical Ctrl-D on an empty
-        // line makes read return zero; O_NONBLOCK yields EAGAIN while idle.
-        let message = "\nGeneration stopped; finishing queued audio.\nCtrl-C: stop audio and exit · Ctrl-D: leave audio playing and exit\n"
-        try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
     }
 
     func poll() {
@@ -165,13 +169,22 @@ final class SpeechPipeline {
                 let event = String(decoding: eventBuffer[..<end], as: UTF8.self)
                 eventBuffer.removeSubrange(...end)
                 if event == "playing" { debug(debugEnabled, "playback started; synthesis continues ahead") }
+                if event == "draining" { draining = true }
+                if event == "drained" { draining = false }
                 if event == "detached", detaching {
                     fputs("siri-say: playback continues as PID \(player.processIdentifier) (kill \(player.processIdentifier) to stop)\n", stderr)
                     finish(130, leavePlayer: true)
                 }
             }
         }
+        if cancelled && draining && !prompted && player.isRunning {
+            prompted = true
+            let message = "\n^C: stop audio and exit · ^D: leave audio playing and exit\n"
+            try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
+        }
         if cancelled && !detaching && terminal >= 0 {
+            // Leave terminal settings unchanged. Canonical Ctrl-D on an empty
+            // line makes read return zero; O_NONBLOCK yields EAGAIN while idle.
             let n = read(terminal, &bytes, bytes.count)
             if n == 0 || (n > 0 && bytes.prefix(n).contains(4)) {
                 if !player.isRunning { finish(130) }
